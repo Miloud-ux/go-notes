@@ -1,6 +1,6 @@
 # go-notes
 
-A simple REST API for notes built with Go's standard `net/http` package and SQLite.
+A simple REST API for notes built with Go's standard `net/http` package and SQLite, with a reverse proxy that load balances across backends.
 
 ## Features
 
@@ -8,6 +8,7 @@ A simple REST API for notes built with Go's standard `net/http` package and SQLi
 - SQLite storage (in-memory store available for tests)
 - Middleware: request ID, logging, panic recovery
 - Graceful shutdown
+- Reverse proxy with round robin load balancing
 
 ## Endpoints
 
@@ -26,6 +27,18 @@ go run .
 ```
 
 The server listens on `:8000`.
+
+Run more backends by starting the API on other ports, for example `:8001`.
+
+## Reverse Proxy
+
+The proxy in `proxy/` forwards requests to the backends using round robin.
+
+```bash
+go run ./proxy
+```
+
+It listens on `:8080` and cycles requests between `http://localhost:8000` and `http://localhost:8001` (configured in `proxy/main.go`). This is a simplified demo and is not production ready.
 
 ## Test
 

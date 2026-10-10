@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -135,6 +136,11 @@ func recovery(next http.Handler) http.Handler {
 }
 
 func main() {
+	addr := flag.String("addr", "8000", "listen addrees")
+	flag.Parse()
+
+	parsedAddr := ":" + *addr
+
 	store, err := NewSQLStore("notes.db")
 
 	if err != nil {
@@ -144,7 +150,7 @@ func main() {
 	mux := NewMux(store)
 
 	srv := &http.Server{
-		Addr:         ":8000",
+		Addr:         parsedAddr,
 		Handler:      requestID(logging(recovery(mux))),
 		ReadTimeout:  60 * time.Second,
 		WriteTimeout: 60 * time.Second,

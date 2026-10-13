@@ -25,7 +25,15 @@ func NewSQLStore(path string) (*SQLStore, error) {
 			CREATE TABLE IF NOT EXISTS notes (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
 				text TEXT NOT NULL
-			)
+			);
+
+			CREATE TABLE IF NOT EXISTS users (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				email TEXT NOT NULL UNIQUE,
+				password_hash TEXT NOT NULL,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			);
+		
 		`)
 
 	if err != nil {

@@ -4,8 +4,10 @@ import (
 	"database/sql"
 	"errors"
 	"log"
+	"net/mail"
 	"strconv"
 	"sync"
+	"time"
 )
 
 type Store interface {
@@ -13,12 +15,59 @@ type Store interface {
 	Get(id string) (Note, bool)
 	List() []Note
 	Del(id string) bool
+	CreateUser(email string, passwordHash string) (User, error)
 }
 
 type MemoryStore struct {
 	mu    sync.RWMutex
 	notes map[string]Note
 	next  int
+}
+
+type User struct {
+	ID           string    `json:"id"`
+	Email        string    `json:"email"`
+	PasswordHash string    `json:"-"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+/* User related methods */
+
+func (s *SQLStore) CreateUser(email string, passwordHash string) (User, error) {
+	// some email validation
+	_, err := mail.ParseAddress(email)
+	if err != nil {
+		log.Printf("Invalid email address err: %v", err)
+		return User{}, err
+	}
+
+	res, err := s.db.Exec(`INSERT INTO users(email, password_hash) VALUES(?,?)`, email, passwordHash)
+
+	if err != nil {
+		log.Printf("Failed to insert user into the database")
+		return User{}, err
+	}
+
+	id, err := res.LastInsertId()
+	if err != nil {
+		log.Printf("LastInsertId() err: %v", err)
+		return User{}, err
+	}
+
+	var createdAt time.Time
+	err = s.db.QueryRow(`SELECT created_at FROM users WHERE id = ?`, id).Scan(&createdAt)
+	if err != nil {
+		log.Printf("Database query error: %v", err)
+		return User{}, err
+	}
+
+	return User{
+		ID:           strconv.FormatInt(id, 10),
+		Email:        email,
+		PasswordHash: passwordHash,
+		CreatedAt:    createdAt,
+	}, nil
+
 }
 
 func (s *SQLStore) Get(id string) (Note, bool) {
@@ -148,6 +197,25 @@ func (s *MemoryStore) Get(id string) (Note, bool) {
 	defer s.mu.RUnlock()
 	n, ok := s.notes[id]
 	return n, ok
+}
+
+func (s *MemoryStore) CreateUser(email string, passwordHash string) (User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := mail.ParseAddress(email)
+	if err != nil {
+		return User{}, err
+	}
+
+	s.next++
+	user := User{
+		ID:           strconv.Itoa(s.next),
+		Email:        email,
+		PasswordHash: passwordHash,
+		CreatedAt:    time.Now(),
+	}
+	return user, nil
 }
 
 // compile-time trick to check if all structs are implementing the Store interface

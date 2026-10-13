@@ -10,8 +10,11 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"strings"
 	"time"
 	"uuid"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 func handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -86,15 +89,64 @@ func deleteNote(s Store) http.HandlerFunc {
 	}
 }
 
-// small wrapper for testing
+func getRegisterUser(s Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "public/index.html")
+	}
+}
 
+func registerUser(s Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var email, password string
+
+		if strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+			var body struct {
+				Email    string `json:"email"`
+				Password string `json:"password"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				http.Error(w, "bad json", http.StatusBadRequest)
+				return
+			}
+			email, password = body.Email, body.Password
+		} else {
+			if err := r.ParseForm(); err != nil {
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			email, password = r.FormValue("email"), r.FormValue("password")
+		}
+
+		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		user, err := s.CreateUser(email, string(hash))
+		if err != nil {
+			log.Printf("CreateUser failed: %v", err)
+			http.Error(w, "could not create user", http.StatusConflict)
+			return
+		}
+		jsonWrite(w, http.StatusCreated, user)
+	}
+}
+
+// NewMux small wrapper for testing
 func NewMux(s Store) *http.ServeMux {
 	mux := http.NewServeMux()
+	// server ping
 	mux.HandleFunc("GET /health", handleHealth)
+
+	// Notes API
 	mux.HandleFunc("POST /notes", createNotes(s))
 	mux.HandleFunc("GET /notes/{id}", getNote(s))
 	mux.HandleFunc("GET /notes", listNotes(s))
 	mux.HandleFunc("DELETE /notes/{id}", deleteNote(s))
+
+	// User API
+	mux.HandleFunc("GET /register", getRegisterUser(s))
+	mux.HandleFunc("POST /register", registerUser(s))
 	return mux
 }
 

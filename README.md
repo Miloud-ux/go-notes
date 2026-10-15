@@ -1,10 +1,12 @@
 # go-notes
 
-A simple REST API for notes built with Go's standard `net/http` package and SQLite, with a reverse proxy that load balances across backends.
+A simple REST API for notes built with Go's standard `net/http` package and SQLite, with user authentication and a reverse proxy that load balances across backends.
 
 ## Features
 
 - Create, list, get, and delete notes
+- User registration and login with bcrypt password hashing
+- Session based auth using HTTP cookies
 - SQLite storage (in-memory store available for tests)
 - Middleware: request ID, logging, panic recovery
 - Graceful shutdown
@@ -12,13 +14,19 @@ A simple REST API for notes built with Go's standard `net/http` package and SQLi
 
 ## Endpoints
 
-| Method | Path         | Description       |
-|--------|--------------|-------------------|
-| GET    | /health      | Health check      |
-| POST   | /notes       | Create a note     |
-| GET    | /notes       | List all notes    |
-| GET    | /notes/{id}  | Get a note        |
-| DELETE | /notes/{id}  | Delete a note     |
+| Method | Path         | Description              |
+|--------|--------------|--------------------------|
+| GET    | /health      | Health check             |
+| POST   | /notes       | Create a note            |
+| GET    | /notes       | List all notes           |
+| GET    | /notes/{id}  | Get a note               |
+| DELETE | /notes/{id}  | Delete a note            |
+| GET    | /register    | Registration page        |
+| POST   | /register    | Register a user          |
+| GET    | /login       | Login page               |
+| POST   | /login       | Log in and set a session |
+
+`/register` and `/login` accept either JSON (`email`, `password`) or a browser form post.
 
 ## Run
 
@@ -26,9 +34,11 @@ A simple REST API for notes built with Go's standard `net/http` package and SQLi
 go run .
 ```
 
-The server listens on `:8000`.
+The server listens on `:8000`. Use `-addr` to run on another port.
 
-Run more backends by starting the API on other ports, for example `:8001`.
+```bash
+go run . -addr 8001
+```
 
 ## Reverse Proxy
 
@@ -53,4 +63,11 @@ curl -X POST localhost:8000/notes -d '{"text":"hello"}'
 curl localhost:8000/notes/1
 curl localhost:8000/notes
 curl -X DELETE localhost:8000/notes/1
+```
+
+Auth:
+
+```bash
+curl -X POST localhost:8000/register -H 'Content-Type: application/json' -d '{"email":"me@example.com","password":"secret"}'
+curl -X POST localhost:8000/login -H 'Content-Type: application/json' -d '{"email":"me@example.com","password":"secret"}' -c cookies.txt
 ```

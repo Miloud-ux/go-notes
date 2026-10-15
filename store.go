@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/rand"
 	"database/sql"
 	"errors"
 	"log"
@@ -16,12 +17,16 @@ type Store interface {
 	List() []Note
 	Del(id string) bool
 	CreateUser(email string, passwordHash string) (User, error)
+	GetUserByEmail(email string) (User, bool)
+	CreateSession(id string) (Session, error)
 }
 
 type MemoryStore struct {
-	mu    sync.RWMutex
-	notes map[string]Note
-	next  int
+	mu       sync.RWMutex
+	notes    map[string]Note
+	users    map[string]User
+	sessions map[string]Session
+	next     int
 }
 
 type User struct {
@@ -29,6 +34,13 @@ type User struct {
 	Email        string    `json:"email"`
 	PasswordHash string    `json:"-"`
 	CreatedAt    time.Time `json:"created_at"`
+}
+
+type Session struct {
+	ID        string
+	UserID    string
+	CreatedAt time.Time
+	ExpiresAt time.Time
 }
 
 /* User related methods */
@@ -66,6 +78,69 @@ func (s *SQLStore) CreateUser(email string, passwordHash string) (User, error) {
 		Email:        email,
 		PasswordHash: passwordHash,
 		CreatedAt:    createdAt,
+	}, nil
+
+}
+
+func (s *SQLStore) GetUserByEmail(email string) (User, bool) {
+	var user struct {
+		ID           int
+		PasswordHash string
+		Email        string
+		CreatedAt    time.Time
+	}
+	user.Email = email
+
+	err := s.db.QueryRow(`SELECT id, password_hash, created_at FROM users WHERE email = ?`, email).Scan(&user.ID, &user.PasswordHash, &user.CreatedAt)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return User{}, false
+	}
+
+	if err != nil {
+		log.Printf("query error %v", err)
+		return User{}, false
+	}
+
+	return User{
+		ID:           strconv.FormatInt(int64(user.ID), 10),
+		Email:        email,
+		PasswordHash: user.PasswordHash,
+		CreatedAt:    user.CreatedAt,
+	}, true
+
+}
+
+func (s *SQLStore) CreateSession(id string) (Session, error) {
+	sid := rand.Text()
+
+	uuid, err := strconv.Atoi(id)
+	if err != nil {
+		log.Printf("string to num conversion err: %v", err)
+	}
+
+	expirationDate := time.Now().Add(time.Hour * 24)
+	// ms difference but i don't want to query the db twice to get the time lol
+	_, err = s.db.Exec(`INSERT INTO sessions (id, user_id, expires_at) VALUES (?,?,?)`, sid, uuid, expirationDate)
+
+	if err != nil {
+		log.Printf("Failed to insert into he database: %v", err)
+		return Session{}, err
+	}
+
+	var createdAt time.Time
+
+	err = s.db.QueryRow(`SELECT created_at FROM sessions WHERE id = ?`, sid).Scan(&createdAt)
+	if err != nil {
+		log.Printf("Database query error: %v", err)
+		return Session{}, err
+	}
+
+	return Session{
+		ID:        sid,
+		UserID:    id,
+		CreatedAt: createdAt,
+		ExpiresAt: expirationDate,
 	}, nil
 
 }
@@ -215,7 +290,47 @@ func (s *MemoryStore) CreateUser(email string, passwordHash string) (User, error
 		PasswordHash: passwordHash,
 		CreatedAt:    time.Now(),
 	}
+	s.users[user.ID] = user
 	return user, nil
+}
+
+func (s *MemoryStore) GetUserByEmail(email string) (User, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.users == nil {
+		return User{}, false
+	}
+
+	for _, u := range s.users {
+		if u.Email == email {
+			return u, true
+		}
+	}
+	return User{}, false
+}
+
+func (s *MemoryStore) CreateSession(id string) (Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.sessions == nil {
+		s.sessions = make(map[string]Session)
+	}
+
+	sid := rand.Text()
+	createdAt := time.Now()
+	expirationDate := createdAt.Add(time.Hour * 24)
+
+	session := Session{
+		ID:        sid,
+		UserID:    id,
+		CreatedAt: createdAt,
+		ExpiresAt: expirationDate,
+	}
+
+	s.sessions[sid] = session
+	return session, nil
 }
 
 // compile-time trick to check if all structs are implementing the Store interface

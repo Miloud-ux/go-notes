@@ -10,11 +10,8 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
-	"strings"
 	"time"
 	"uuid"
-
-	"golang.org/x/crypto/bcrypt"
 )
 
 func handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -89,49 +86,6 @@ func deleteNote(s Store) http.HandlerFunc {
 	}
 }
 
-func getRegisterUser(s Store) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "public/index.html")
-	}
-}
-
-func registerUser(s Store) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		var email, password string
-
-		if strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
-			var body struct {
-				Email    string `json:"email"`
-				Password string `json:"password"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-				http.Error(w, "bad json", http.StatusBadRequest)
-				return
-			}
-			email, password = body.Email, body.Password
-		} else {
-			if err := r.ParseForm(); err != nil {
-				http.Error(w, "bad request", http.StatusBadRequest)
-				return
-			}
-			email, password = r.FormValue("email"), r.FormValue("password")
-		}
-
-		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-		if err != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-		user, err := s.CreateUser(email, string(hash))
-		if err != nil {
-			log.Printf("CreateUser failed: %v", err)
-			http.Error(w, "could not create user", http.StatusConflict)
-			return
-		}
-		jsonWrite(w, http.StatusCreated, user)
-	}
-}
-
 // NewMux small wrapper for testing
 func NewMux(s Store) *http.ServeMux {
 	mux := http.NewServeMux()
@@ -145,8 +99,11 @@ func NewMux(s Store) *http.ServeMux {
 	mux.HandleFunc("DELETE /notes/{id}", deleteNote(s))
 
 	// User API
-	mux.HandleFunc("GET /register", getRegisterUser(s))
-	mux.HandleFunc("POST /register", registerUser(s))
+	mux.HandleFunc("GET /register", GetRegisterUser(s))
+	mux.HandleFunc("POST /register", RegisterUser(s))
+	mux.HandleFunc("POST /login", LoginUser(s))
+	mux.HandleFunc("GET /login", GetLoginUser(s))
+
 	return mux
 }
 
@@ -238,9 +195,12 @@ type Note struct {
 
 /* Creates a new memory store (for testing only) */
 func newStore() *MemoryStore {
-	return &MemoryStore{notes: map[string]Note{}, next: 0}
+	return &MemoryStore{
+		notes:    map[string]Note{},
+		users:    map[string]User{},
+		sessions: map[string]Session{},
+	}
 }
-
 func jsonWrite(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

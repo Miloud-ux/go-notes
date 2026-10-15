@@ -33,6 +33,13 @@ func NewSQLStore(path string) (*SQLStore, error) {
 				password_hash TEXT NOT NULL,
 				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 			);
+
+			CREATE TABLE IF NOT EXISTS sessions (
+				id TEXT PRIMARY KEY,
+				user_id INTEGER NOT NULL,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				expires_at TIMESTAMP NOT NULL
+			);
 		
 		`)
 
